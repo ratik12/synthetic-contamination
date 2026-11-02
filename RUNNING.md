@@ -1,68 +1,55 @@
-# Running the Synthetic Data Contamination Pipeline on Google Colab
+# Running on Colab
 
-This guide describes how to launch and execute the full experimental pipeline on a remote GPU (Google Colab T4) using `notebooks/run_on_colab.ipynb`.
+Step-by-step instructions for running the pipeline on Google Colab (T4 GPU).
 
----
+## 1. Open the notebook
 
-## 1. Opening the Notebook in Colab
+Open `notebooks/run_on_colab.ipynb` directly in Colab:
+- Direct link: `https://colab.research.google.com/github/ratik12/synthetic-contamination/blob/main/notebooks/run_on_colab.ipynb`
+- Or go to [colab.research.google.com](https://colab.research.google.com), select the GitHub tab, enter `ratik12/synthetic-contamination`, and pick `run_on_colab.ipynb`.
 
-1. Open your browser and navigate to Google Colab:
-   - Direct link: `https://colab.research.google.com/github/ratik12/synthetic-contamination/blob/main/notebooks/run_on_colab.ipynb`
-   - Alternatively, open [Google Colab](https://colab.research.google.com/), select the **GitHub** tab, enter `ratik12/synthetic-contamination`, and select `notebooks/run_on_colab.ipynb`.
-2. **Select GPU Hardware Accelerator:**
-   - Go to the menu: `Runtime` -> `Change runtime type`.
-   - Under **Hardware accelerator**, select **T4 GPU**.
-   - Click **Save**.
+Make sure GPU is enabled: `Runtime > Change runtime type > T4 GPU`.
 
----
+## 2. Execution order
 
-## 2. Execution Flow
+The notebook runs the pipeline cells sequentially:
 
-The notebook contains individual cells that correspond to each stage of the research pipeline:
+1. **Check GPU:** Runs `nvidia-smi` and checks CUDA is available.
+2. **Setup:** Clones repo, installs `requirements.txt`.
+3. **Drive mount & symlinks:** Mounts Drive to `/content/drive/MyDrive/synthetic_contamination_backup` and symlinks `data/` and `results/` so shard progress is preserved across disconnects.
+4. **00_check_env:** Verifies dependencies and Hugging Face model IDs.
+5. **01_prepare_data:** Downloads Wikipedia dump (`20220301.simple`), cleans text, dedups, and writes split metadata (S1 to S5).
+6. **Smoke test (02_generate --extra limit=16):** Generates 16 passages per generator and prints 4 samples with `show_samples.py`. Check the text before continuing: confirm no refusals, chat preambles ("Sure, here is..."), or markdown headings.
+7. **Full pipeline:** Runs `bash run_all.sh configs/mid.yaml`. This resumes from the smoke output and runs full generation (02), corpus merge and leakage checks (03), feature extraction (04), detector training (05), evaluation (06), audit estimation (07), and downstream dataset prep (08).
+8. **09_make_report_tables:** Writes LaTeX tables to `report/gen/` and figures to `report/fig/`.
+9. **Display results:** Prints `results/mid_today/detection_metrics.csv` and `estimator_summary.csv`.
 
-1. **GPU Check (`nvidia-smi` & PyTorch CUDA check):** Confirms CUDA T4 is available.
-2. **Clone & Install:** Clones the repository and installs `requirements.txt` (including pinned `datasets==2.21.0` and `matplotlib`).
-3. **Mount Drive & Symlink:** Mounts Google Drive (`/content/drive/MyDrive/synthetic_contamination_backup`) and symlinks `data/` and `results/` so that if the Colab session disconnects, all shards and outputs are preserved.
-4. **Environment Check:** Runs `scripts/00_check_env.py` to test HuggingFace model accessibility.
-5. **Data Preparation:** Runs `scripts/01_prepare_data.py` to sample Wikipedia, clean, dedup, and partition S1–S5 splits.
-6. **Smoke Test:** Runs `scripts/02_generate.py --extra limit=16` and prints 4 raw samples via `scripts/show_samples.py --raw --n 4`.
-   > **Critical Check:** Inspect the smoke test samples by eye! Verify there are no AI chat preambles ("Sure, here is..."), markdown headings, or refusals.
-7. **Full Execution:** Executes `bash run_all.sh configs/mid.yaml`, which resumes generation from the smoke test and proceeds through feature extraction, detector training, evaluation, audit estimation, and downstream dataset preparation.
-8. **Report Generation:** Runs `scripts/09_make_report_tables.py --extra out=report` to generate LaTeX tables and summary figures.
-9. **Display Results:** Reads and displays `detection_metrics.csv` and `estimator_summary.csv`.
+## 3. Expected runtimes (estimates until measured)
 
----
+Times projected on a free Colab T4 GPU:
 
-## 3. Estimated Runtime per Stage
+- `00_check_env`: ~30s
+- `01_prepare_data`: ~3-5 min (dump download and filtering)
+- `02_generate` (smoke test, limit=16): ~2 min
+- `02_generate` (full run): ~45-75 min (Qwen2.5-1.5B ~15-20 min, Phi-3.5-mini ~30-50 min; resumable)
+- `03_build_corpus`: ~1-2 min
+- `04_extract_features`: ~15-20 min (GPT-2 stats, Binoculars, stylometric features)
+- `05_train_detectors`: ~5-10 min (LR, GBDT, TF-IDF, DistilBERT seen/unseen)
+- `06_eval_detectors`: ~2-3 min (AUROC, AUPRC, TPR@1% FPR with bootstrap)
+- `07_audit_estimate`: ~5-10 min (CC, PCC, ACC, KDE MLE across alphas and draws)
+- `08_prepare_downstream`: ~1-2 min (D arms and matching H controls)
+- `09_make_report_tables`: ~1 min
+- **Total estimated time:** ~1.5 to 2.5 hours
 
-> *Note: All runtimes below are estimates measured/projected on a Google Colab free-tier T4 GPU (16 GB VRAM) until formally measured during your runs.*
+## 4. Fallback if Wikipedia 20220301 loader fails
 
-| Stage | Script / Task | Estimated Runtime | Notes |
-|---|---|---|---|
-| **00** | `00_check_env.py` | ~30 seconds | Checks environment, CUDA, and HF weights connectivity |
-| **01** | `01_prepare_data.py` | ~3–5 minutes | Downloads `20220301.simple`, cleans, dedups, assigns S1–S5 splits |
-| **02 (Smoke)** | `02_generate.py --extra limit=16` | ~2 minutes | Generates 16 samples per generator |
-| **02 (Full)** | `02_generate.py` | ~45–75 minutes | Generates synthetic twins with Qwen2.5-1.5B and Phi-3.5-mini in fp16; resumable |
-| **03** | `03_build_corpus.py` | ~1–2 minutes | Merges corpus, executes 4 leakage checks, computes length stats |
-| **04** | `04_extract_features.py` | ~15–20 minutes | GPT-2 metrics + Fast-DetectGPT + Binoculars + 12 stylometric features |
-| **05** | `05_train_detectors.py` | ~5–10 minutes | Trains LR, GBDT, TF-IDF LR, and DistilBERT across seen/unseen setups |
-| **06** | `06_eval_detectors.py` | ~2–3 minutes | AUROC, AUPRC, TPR@1% FPR with 200 bootstrap resamples |
-| **07** | `07_audit_estimate.py` | ~5–10 minutes | Ratio estimation across 5 alphas, 50 draws, KDE/CC/PCC/ACC/MLE |
-| **08** | `08_prepare_downstream.py` | ~1–2 minutes | Assembles nested contaminated D arms and matching H controls |
-| **09** | `09_make_report_tables.py` | ~1 minute | Compiles LaTeX tables and figures |
-| **Total** | Full Pipeline | **~1.5 – 2 hours** | |
+The Wikipedia 20220301 snapshot uses an older loading script that requires `datasets==2.21.0`.
 
----
+If `01_prepare_data.py` fails to download or parse the dump due to Hugging Face changes, you can enable the fallback dump in `configs/mid.yaml`:
+```yaml
+data:
+  allow_fallback_dump: true
+```
+This loads `wikimedia/wikipedia` snapshot `20231101.simple`.
 
-## 4. Troubleshooting: Wikipedia 20220301 Loader
-
-- **Dataset Pinning:** The project requires `datasets==2.21.0` because the pre-ChatGPT Wikipedia snapshot (`legacy-datasets/wikipedia`, config `20220301.simple`) relies on dataset loading scripts with `trust_remote_code=True`.
-- **If the 20220301 Loader Fails:**
-  If network or Hugging Face repository issues prevent loading `20220301.simple`, open `configs/mid.yaml` and set:
-  ```yaml
-  data:
-    allow_fallback_dump: true
-  ```
-  This directs the pipeline to load `wikimedia/wikipedia` (config `20231101.simple`).
-- **Research Deviation Warning:**
-  > **IMPORTANT:** The November 2023 dump was created **after** the release of ChatGPT (November 2022). Consequently, the "human" text itself may contain unknown amounts of synthetic web text. If `allow_fallback_dump: true` is used, you **must explicitly declare this as a methodological deviation** in all capstone presentations, logs, and reports.
+**Deviation note:** The November 2023 dump was created after ChatGPT was released (November 2022). It may contain unknown amounts of synthetic web text. If `allow_fallback_dump: true` is used, note it as a design deviation in the report.
