@@ -1,0 +1,14 @@
+# Colab already has torch. Pin datasets: the 20220301 Wikipedia loader script needs datasets<3 and trust_remote_code.
+datasets==2.21.0
+transformers>=4.44
+accelerate
+scikit-learn
+scipy
+pandas
+numpy
+pyyaml
+tokenizers
+mwparserfromhell
+apache-beam
+pytest
+matplotlib

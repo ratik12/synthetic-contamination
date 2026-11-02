@@ -1,0 +1,23 @@
+# Data and outputs
+data/
+results/
+report/
+
+# Model weights
+*.pt
+*.bin
+*.safetensors
+
+# Python / Environment / Caches
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.DS_Store
+
+# Legacy / scratch
+research_repo/
+
+# Explicitly keep experiment log
+!EXPERIMENT_LOG.md

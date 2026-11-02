@@ -1,0 +1,76 @@
+# Mid-term ("finish today") configuration. Scaled down from the research plan; every deviation is listed in README.md.
+experiment_name: mid_today
+seed: 42
+mock: false            # true ONLY for offline plumbing tests; mock outputs are never results
+
+paths:
+  data: data
+  results: results
+
+data:
+  source: hf_wikipedia           # hf_wikipedia | local_jsonl
+  hf_name: wikipedia
+  hf_config: 20220301.simple     # pre-ChatGPT dump (1 Mar 2022), Simple English for speed today
+  hf_streaming: false            # set true for 20220301.en (large download otherwise)
+  allow_fallback_dump: false     # if true, falls back to wikimedia/wikipedia 20231101.simple and FLAGS the deviation
+  local_path: null
+  pool_size: 9000                # random articles scanned; raise if "too few eligible articles" is raised
+  passage_words: 200
+  min_words: 150
+  dedup_ngram: 8
+  dedup_threshold: 0.3          # must equal the threshold used by checks.check_corpus
+  sizes: {S1: 600, S2: 200, S3: 300, S4: 1000, S5: 300}
+  twins_S4: 500                  # S4 articles that get a synthetic twin (max synthetic fraction = twins_S4 / 1000)
+
+generation:
+  backend: hf                    # hf | mock
+  target_words: 200
+  min_words: 150
+  max_new_tokens: 320
+  temperature: 0.8
+  top_p: 0.95
+  batch_size: 16
+  max_attempts: 3
+  dtype: float16                 # float16 | bfloat16 | float32
+  generators:
+    - {name: qwen2.5-1.5b, hf_id: Qwen/Qwen2.5-1.5B-Instruct}
+    - {name: phi-3.5-mini, hf_id: microsoft/Phi-3.5-mini-instruct}
+  # mock only:
+  mock_fail_rate: 0.0
+
+quality:
+  copy_ngram: 8                  # drop a twin sharing an 8-gram with its own source article
+  max_len_ratio: 1.5             # report if mean synthetic/human length ratio is outside [1/1.5, 1.5]
+
+scorer:
+  hf_id: gpt2                    # scoring LM for log-likelihood / Fast-DetectGPT features
+  max_len: 256
+  batch_size: 8
+
+binoculars:                      # Hans et al. 2024: base + instruct sibling sharing a tokenizer; NOT one of the generators
+  observer_id: HuggingFaceTB/SmolLM2-360M
+  performer_id: HuggingFaceTB/SmolLM2-360M-Instruct
+  dtype: float16
+  max_len: 256
+  batch_size: 4
+
+detectors:
+  names: [gpt2_loglik, fast_detectgpt, binoculars, lr_features, gbdt_features, tfidf_lr, distilbert]
+  distilbert:
+    enabled: true
+    hf_id: distilbert-base-uncased
+    epochs: 2
+    lr: 0.00003
+    batch_size: 16
+    max_len: 256
+
+audit:
+  alphas: [0.0, 0.05, 0.15, 0.30, 0.50]
+  set_size: 200
+  draws_per_alpha: 50
+  n_boot: 200
+  alpha_grid_step: 0.005
+
+downstream:
+  total_docs: 1000                       # N documents per arm
+  d_fractions: [0.0, 0.05, 0.15, 0.30, 0.50]   # D arms; H arms are size-matched human-only controls
